@@ -145,11 +145,16 @@ action code {:
 terminal NEWLINE;
 terminal String PLUS; 
 terminal String MINUS; 
-terminal String LPAREN; 
-terminal String RPAREN; 
+terminal String MUL; 
+terminal String DIV;
+terminal String MOD;
+terminal String LPAR; 
+terminal String RPAR; 
 terminal String ID;
 terminal Integer NUMBER; 
 terminal String ASSIGN;
+terminal String LBR;
+terminal String RBR;
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
 terminal UNRECOGNIZED;   
@@ -163,14 +168,17 @@ non terminal Program           program;
 non terminal List<Declaration> program_head;
 non terminal List<Stmt>        stmt_list, opt_stmt_list;
 non terminal Stmt              stmt, expr_stmt;
-non terminal Expr              expr, binary_expr;
-non terminal List<Expr>        opt_target;
-non terminal Expr              target;
+non terminal Expr              expr, basic_expr;
 non terminal Identifier        identifier;
+non terminal List<Expr>        assgn_target, expr_list;
+non terminal Expr              target;
+non terminal IndexExpr         index_expr;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
 precedence left PLUS, MINUS;
+precedence left MUL, DIV, MOD;
+precedence left LBR, RBR;
 
 /* The start symbol. */
 start with program;
@@ -206,27 +214,42 @@ stmt_list ::= stmt:s                 {: RESULT = single(s); :}
 stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
               ;
 
-expr_stmt ::= expr:e    {: RESULT = new ExprStmt(exleft, exright, e); :}
-            | opt_target:ot expr:e                          {: RESULT = new AssignStmt(getLeft(ot), exright, ot, e); :}
+expr_stmt ::= expr:e                                          {: RESULT = new ExprStmt(exleft, exright, e); :}
+            | assgn_target:at expr:e                          {: RESULT = new AssignStmt(getLeft(at), exright, at, e); :}
             ;
 
-opt_target ::= opt_target:ot target:t ASSIGN                  {: RESULT = combine(ot, t); :}
+assgn_target ::= assgn_target:at target:t ASSIGN                  {: RESULT = combine(at, t); :}
               | target:t ASSIGN                               {: RESULT = single(t); :}
               ;
 
 /* target */
 target ::= identifier:id                               {: RESULT = id; :}
+        | index_expr:ie                                 {: RESULT = ie; :}
         ;
 
-identifier ::= ID:id                                   {: RESULT = new Identifier(idxleft, idxright, id); :};
+identifier ::= ID:id                                   {: RESULT = new Identifier(idxleft, idxright, id); :}
+            ;
 
-expr ::= binary_expr:e  {: RESULT = e; :}
-       | NUMBER:n       {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
-       ;
+expr ::= basic_expr:be     {: RESULT = be; :}
+        ;
 
+expr_list ::= expr:e                                      {: RESULT = single(e); :}
+            |                                             {: RESULT = new ArrayList<Expr>(); :}
+            ;
+
+index_expr ::= basic_expr:be LBR expr:e RBR:rbr                   {: RESULT = new IndexExpr(bexleft, rbrxright, be, e); :}
+            ;
 
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */
-binary_expr ::= expr:e1 PLUS:op expr:e2 {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, op, e2); :}
-            |  expr:e1 MINUS:op expr:e2 {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, op, e2); :}
+basic_expr ::= identifier:id                                      {: RESULT = id; :}
+            |   NUMBER:n                                          {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+            |   LPAR:lpar expr:e RPAR:rpar                        {: RESULT = e; :}
+            |   index_expr:i                                      {: RESULT = i; :}
+            |   identifier:id LPAR expr_list:expl RPAR:rpar       {: RESULT = new CallExpr(idxleft, rparxright, id, expl); :}
+            |   basic_expr:be1 PLUS:op basic_expr:be2             {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MINUS:op basic_expr:be2            {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MUL:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 DIV:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MOD:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
             ;

@@ -71,9 +71,14 @@ IntegerLiteral = 0 | [1-9][0-9]*
   /* Operators. */
   "+"                         { return symbol(ChocoPyTokens.PLUS); }
   "-"                         { return symbol(ChocoPyTokens.MINUS); }
-  "("                         { return symbol(ChocoPyTokens.LPAREN); }
-  ")"                         { return symbol(ChocoPyTokens.RPAREN); }
+  "("                         { return symbol(ChocoPyTokens.LPAR); }
+  ")"                         { return symbol(ChocoPyTokens.RPAR); }
   "="                         { return symbol(ChocoPyTokens.ASSIGN); }
+  "*"                         { return symbol(ChocoPyTokens.MUL); }  
+  "/"                         { return symbol(ChocoPyTokens.DIV); }
+  "%"                         { return symbol(ChocoPyTokens.MOD); }
+  "["                         { return symbol(ChocoPyTokens.LBR); }
+  "]"                         { return symbol(ChocoPyTokens.RBR); }
 
   /* Identifier */
   {Identifier}                { return symbol(ChocoPyTokens.ID, yytext()); }  
