@@ -54,7 +54,7 @@ import java_cup.runtime.*;
 
 WhiteSpace = [ \t]
 LineBreak  = \r|\n|\r\n
-
+Identifier = [a-zA-Z$_][a-zA-Z0-9$_]*
 IntegerLiteral = 0 | [1-9][0-9]*
 
 %%
@@ -66,11 +66,17 @@ IntegerLiteral = 0 | [1-9][0-9]*
   {LineBreak}                 { return symbol(ChocoPyTokens.NEWLINE); }
 
   /* Literals. */
-  {IntegerLiteral}            { return symbol(ChocoPyTokens.NUMBER,
-                                                 Integer.parseInt(yytext())); }
+  {IntegerLiteral}            { return symbol(ChocoPyTokens.NUMBER, Integer.parseInt(yytext())); }
 
   /* Operators. */
-  "+"                         { return symbol(ChocoPyTokens.PLUS, yytext()); }
+  "+"                         { return symbol(ChocoPyTokens.PLUS); }
+  "-"                         { return symbol(ChocoPyTokens.MINUS); }
+  "("                         { return symbol(ChocoPyTokens.LPAREN); }
+  ")"                         { return symbol(ChocoPyTokens.RPAREN); }
+  "="                         { return symbol(ChocoPyTokens.ASSIGN); }
+
+  /* Identifier */
+  {Identifier}                { return symbol(ChocoPyTokens.ID, yytext()); }  
 
   /* Whitespace. */
   {WhiteSpace}                { /* ignore */ }
