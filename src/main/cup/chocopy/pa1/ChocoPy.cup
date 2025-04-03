@@ -143,6 +143,8 @@ action code {:
  * in actions ( {: ... :} ).
  */
 terminal NEWLINE;
+terminal String COMMA;
+
 terminal String PLUS; 
 terminal String MINUS; 
 terminal String MUL; 
@@ -155,6 +157,22 @@ terminal Integer NUMBER;
 terminal String ASSIGN;
 terminal String LBR;
 terminal String RBR;
+terminal String IF;
+terminal String ELSE;
+terminal String GT;
+terminal String LT;
+terminal String EQUAL;
+terminal String NEQ;
+terminal String GEQ;
+terminal String LEQ;
+terminal String UMINUS;
+terminal String STRING;
+terminal Boolean BOOL;
+terminal String NONE;
+terminal String OR;
+terminal String NOT;
+terminal String DOT;
+terminal String AND;
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
 terminal UNRECOGNIZED;   
@@ -168,17 +186,27 @@ non terminal Program           program;
 non terminal List<Declaration> program_head;
 non terminal List<Stmt>        stmt_list, opt_stmt_list;
 non terminal Stmt              stmt, expr_stmt;
-non terminal Expr              expr, basic_expr;
+non terminal Expr              expr, basic_expr, cond_expr;
 non terminal Identifier        identifier;
 non terminal List<Expr>        assgn_target, expr_list;
 non terminal Expr              target;
 non terminal IndexExpr         index_expr;
+non terminal Literal           simple_lit;
+non terminal StringLiteral     comp_expr;
+non terminal MemberExpr        access_expr;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
+ 
+precedence left OR;
+precedence left AND;
+precedence left NOT;
+precedence nonassoc EQUAL, NEQ, LT, GT, LEQ, GEQ;
 precedence left PLUS, MINUS;
 precedence left MUL, DIV, MOD;
-precedence left LBR, RBR;
+precedence left UMINUS;
+precedence left DOT, COMMA, LBR, RBR;
+precedence right IF;
 
 /* The start symbol. */
 start with program;
@@ -212,6 +240,7 @@ stmt_list ::= stmt:s                 {: RESULT = single(s); :}
             ;
 
 stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
+        | NEWLINE            {: RESULT = null; :}
               ;
 
 expr_stmt ::= expr:e                                          {: RESULT = new ExprStmt(exleft, exright, e); :}
@@ -222,28 +251,57 @@ assgn_target ::= assgn_target:at target:t ASSIGN                  {: RESULT = co
               | target:t ASSIGN                               {: RESULT = single(t); :}
               ;
 
-/* target */
 target ::= identifier:id                               {: RESULT = id; :}
-        | index_expr:ie                                 {: RESULT = ie; :}
+        |  index_expr:ie                               {: RESULT = ie; :}
+        |  access_expr:ae                              {: RESULT = ae; :} 
         ;
 
 identifier ::= ID:id                                   {: RESULT = new Identifier(idxleft, idxright, id); :}
             ;
 
-expr ::= basic_expr:be     {: RESULT = be; :}
+expr ::=  cond_expr:ce                                    {: RESULT = ce; :}
+      |   expr:e1 IF expr:e2 ELSE expr:e3                 {: RESULT = new IfExpr(e1xleft, e3xright, e2, e1, e3); :}
+      |   expr:e1 OR:or expr:e2                           {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, or, e2);  :}
+      |   NOT:n expr:exp                                  {: RESULT = new UnaryExpr(nxleft, expxright, n, exp); :}
+      |   expr:e1 AND:a expr:e2                           {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, a, e2); :}
+      ;
+
+cond_expr ::=   basic_expr:be                                {: RESULT = be; :}
+            |   basic_expr:be1 comp_expr:ce basic_expr:be2   {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, ce.value, be2); :}
         ;
 
+comp_expr ::= EQUAL:co                                       {: RESULT = new StringLiteral(coxleft, coxright, "=="); :} 
+          | NEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, "!="); :} 
+          | LEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, "<="); :} 
+          | GEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, ">="); :} 
+          | LT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, "<"); :} 
+          | GT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, ">"); :}
+          ;
+
 expr_list ::= expr:e                                      {: RESULT = single(e); :}
+            | expr_list:el COMMA expr:e                   {: RESULT = combine(el, e); :}
             |                                             {: RESULT = new ArrayList<Expr>(); :}
             ;
 
 index_expr ::= basic_expr:be LBR expr:e RBR:rbr                   {: RESULT = new IndexExpr(bexleft, rbrxright, be, e); :}
             ;
 
+simple_lit ::= NUMBER:n                                         {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+          | STRING:s                                            {: RESULT = new StringLiteral(sxleft, sxright, s); :}
+          | NONE:no                                             {: RESULT = new NoneLiteral(noxleft, noxright); :}
+          | BOOL:b                                              {: RESULT = new BooleanLiteral(bxleft, bxright, b); :}
+          ;
+
+access_expr ::= basic_expr:be DOT identifier:id                   {: RESULT = new MemberExpr(bexleft, idxright, be, id); :}
+              ;
+
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */
-basic_expr ::= identifier:id                                      {: RESULT = id; :}
-            |   NUMBER:n                                          {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+basic_expr ::=  identifier:id                                     {: RESULT = id; :}
+            |   access_expr:ae                                    {: RESULT = ae; :}
+            |   access_expr:ae LPAR expr_list:el RPAR:rpar        {: RESULT = new MethodCallExpr(aexleft, rparxright, ae, el); :}
+            |   simple_lit:sl                                     {: RESULT = sl; :}
+            |   LBR:lbr expr_list:el RBR:rbr                      {: RESULT = new ListExpr(lbrxleft, rbrxright, el); :}
             |   LPAR:lpar expr:e RPAR:rpar                        {: RESULT = e; :}
             |   index_expr:i                                      {: RESULT = i; :}
             |   identifier:id LPAR expr_list:expl RPAR:rpar       {: RESULT = new CallExpr(idxleft, rparxright, id, expl); :}
@@ -252,4 +310,5 @@ basic_expr ::= identifier:id                                      {: RESULT = id
             |   basic_expr:be1 MUL:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
             |   basic_expr:be1 DIV:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
             |   basic_expr:be1 MOD:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   MINUS:m basic_expr:be                             {: RESULT = new UnaryExpr(mxleft, bexright, m, be); :} %prec UMINUS
             ;

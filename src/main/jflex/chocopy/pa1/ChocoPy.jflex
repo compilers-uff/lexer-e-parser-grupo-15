@@ -56,6 +56,9 @@ WhiteSpace = [ \t]
 LineBreak  = \r|\n|\r\n
 Identifier = [a-zA-Z$_][a-zA-Z0-9$_]*
 IntegerLiteral = 0 | [1-9][0-9]*
+StringLiteral = \"([^\"\\]|\\.)*\" 
+
+
 
 %%
 
@@ -63,10 +66,19 @@ IntegerLiteral = 0 | [1-9][0-9]*
 <YYINITIAL> {
 
   /* Delimiters. */
-  {LineBreak}                 { return symbol(ChocoPyTokens.NEWLINE); }
+  {LineBreak}                    { return symbol(ChocoPyTokens.NEWLINE); }
 
   /* Literals. */
-  {IntegerLiteral}            { return symbol(ChocoPyTokens.NUMBER, Integer.parseInt(yytext())); }
+  {IntegerLiteral}               { return symbol(ChocoPyTokens.NUMBER, Integer.parseInt(yytext())); }
+
+  {StringLiteral}                { return symbol(ChocoPyTokens.STRING, yytext().substring(1, yytext().length() - 1)); }
+
+  "False"                        { return symbol(ChocoPyTokens.BOOL, false); }
+  "True"                         { return symbol(ChocoPyTokens.BOOL, true); }
+  "None"                         { return symbol(ChocoPyTokens.NONE); }
+
+  ","                            { return symbol(ChocoPyTokens.COMMA); }
+
 
   /* Operators. */
   "+"                         { return symbol(ChocoPyTokens.PLUS); }
@@ -79,6 +91,18 @@ IntegerLiteral = 0 | [1-9][0-9]*
   "%"                         { return symbol(ChocoPyTokens.MOD); }
   "["                         { return symbol(ChocoPyTokens.LBR); }
   "]"                         { return symbol(ChocoPyTokens.RBR); }
+  "=="                        { return symbol(ChocoPyTokens.EQUAL); }
+  "!="                        { return symbol(ChocoPyTokens.NEQ); }
+  ">="                        { return symbol(ChocoPyTokens.GEQ); }
+  "<="                        { return symbol(ChocoPyTokens.LEQ); }
+  ">"                         { return symbol(ChocoPyTokens.GT); }
+  "<"                         { return symbol(ChocoPyTokens.LT); }
+  "if"                        { return symbol(ChocoPyTokens.IF); }
+  "else"                      { return symbol(ChocoPyTokens.ELSE); }
+  "or"                        { return symbol(ChocoPyTokens.OR); }
+  "not"                       { return symbol(ChocoPyTokens.NOT); }
+  "."                         { return symbol(ChocoPyTokens.DOT); }
+  "and"                          { return symbol(ChocoPyTokens.AND); }
 
   /* Identifier */
   {Identifier}                { return symbol(ChocoPyTokens.ID, yytext()); }  
