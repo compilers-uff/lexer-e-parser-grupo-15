@@ -131,6 +131,15 @@ action code {:
                                                  first.getLocation()[1]);
     }
 
+    ComplexSymbolFactory.Location getRight(List<? extends Node> nodes) {
+        if (nodes.isEmpty()) {
+            return null;
+        }
+        Node last = nodes.get(nodes.size()-1);
+        return new ComplexSymbolFactory.Location(last.getLocation()[2],
+                                                 last.getLocation()[3]);
+    }
+
 :}
 
 /* Terminal symbols (tokens returned by the lexer).  The declaration
@@ -173,9 +182,19 @@ terminal String OR;
 terminal String NOT;
 terminal String DOT;
 terminal String AND;
+terminal INDENT;
+terminal DEDENT;
+terminal DEF;
+terminal String COLON;
+terminal GLOBAL;
+terminal NONLOCAL;
+terminal String ARROW;
+terminal String RETURN;
+
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
-terminal UNRECOGNIZED;   
+terminal UNRECOGNIZED;
+terminal BAD_INDENTATION;   
 
 /* Nonterminal symbols (defined in production rules below).
  * As for terminal symbols, 
@@ -183,7 +202,7 @@ terminal UNRECOGNIZED;
  * defines the listed nonterminal identifier symbols to have semantic values
  * of type <type>. */
 non terminal Program           program;
-non terminal List<Declaration> program_head;
+non terminal List<Declaration> program_head, decl_list;
 non terminal List<Stmt>        stmt_list, opt_stmt_list;
 non terminal Stmt              stmt, expr_stmt;
 non terminal Expr              expr, basic_expr, cond_expr;
@@ -194,6 +213,13 @@ non terminal IndexExpr         index_expr;
 non terminal Literal           simple_lit;
 non terminal StringLiteral     comp_expr;
 non terminal MemberExpr        access_expr;
+non terminal FuncDef           func_def;
+non terminal TypeAnnotation    type;
+non terminal GlobalDecl        global_decl;
+non terminal NonLocalDecl      nonloc_decl;
+non terminal VarDef            var_def;
+non terminal TypedVar          typed_var;
+non terminal List<TypedVar>    typed_var_list;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
@@ -221,8 +247,10 @@ program ::= program_head:d opt_stmt_list:s
         ;
 
 /* Initial list of declarations. */
-program_head ::= /* not implemented; currently matches empty string */
-                                     {: RESULT = empty(); :}
+program_head ::=  program_head:d func_def:fd             {: RESULT = combine(d, fd); :}
+                | program_head:d var_def:vd              {: RESULT = combine(d, vd); :}
+                | program_head:d error:e                 {: RESULT = d; :}
+                |                                        {: RESULT = empty(); :}
                 ;
 
 opt_stmt_list ::=                    {: RESULT = empty(); :}
@@ -240,14 +268,15 @@ stmt_list ::= stmt:s                 {: RESULT = single(s); :}
             ;
 
 stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
-        | NEWLINE            {: RESULT = null; :}
               ;
 
 expr_stmt ::= expr:e                                          {: RESULT = new ExprStmt(exleft, exright, e); :}
             | assgn_target:at expr:e                          {: RESULT = new AssignStmt(getLeft(at), exright, at, e); :}
+            | RETURN:r expr:e                                 {: RESULT = new ReturnStmt(rxleft, exright, e); :}
+            | RETURN:r                                        {: RESULT = new ReturnStmt(rxleft, rxright, null); :}
             ;
 
-assgn_target ::= assgn_target:at target:t ASSIGN                  {: RESULT = combine(at, t); :}
+assgn_target ::= assgn_target:at target:t ASSIGN              {: RESULT = combine(at, t); :}
               | target:t ASSIGN                               {: RESULT = single(t); :}
               ;
 
@@ -294,6 +323,42 @@ simple_lit ::= NUMBER:n                                         {: RESULT = new 
 
 access_expr ::= basic_expr:be DOT identifier:id                   {: RESULT = new MemberExpr(bexleft, idxright, be, id); :}
               ;
+
+
+func_def ::= DEF:def identifier:id LPAR typed_var_list:tvl RPAR ARROW type:t COLON NEWLINE INDENT decl_list:dl stmt_list:sl DEDENT     
+                {: RESULT = new FuncDef(defxleft, getRight(sl), id, tvl, t, dl, sl); :}
+           ;
+
+type::= identifier:id                    {: RESULT = new ClassType(idxleft, idxright, id.name); :}
+      | LBR:lb type:t RBR:rb             {: RESULT = new ListType(lbxleft, rbxright, t); :}
+      | STRING:s                         {: RESULT = new ClassType(sxleft, sxright, s); :}
+      ;
+
+typed_var_list ::= typed_var_list:tvl COMMA typed_var:tv    {: RESULT = combine(tvl, tv); :}
+                 | typed_var_list:tvl COMMA error           {: RESULT = tvl; :}
+                 | typed_var:tv                             {: RESULT = single(tv); :}
+                 |                                          {: RESULT = empty(); :}
+                 ;
+
+typed_var ::= identifier:id COLON:c type:t       {: RESULT = new TypedVar(idxleft, txright, id, t); :}
+            ;
+
+decl_list ::= decl_list:dl global_decl:gd                    {: RESULT = combine(dl, gd); :}
+                   | decl_list:dl nonloc_decl:nld                 {: RESULT = combine(dl, nld); :}
+                   | decl_list:dl var_def:vd                        {: RESULT = combine(dl, vd); :}
+                   | decl_list:dl func_def: fd                      {: RESULT = combine(dl, fd); :}
+                   | decl_list:dl error                             {: RESULT = dl; :}
+                   |                                                       {: RESULT = empty(); :}
+                   ;
+
+global_decl::= GLOBAL:g identifier:id NEWLINE           {: RESULT = new GlobalDecl(gxleft, idxright, id); :}
+             ;
+
+nonloc_decl::= NONLOCAL:nl identifier:id NEWLINE      {: RESULT = new NonLocalDecl(nlxleft, idxright, id); :}
+               ;
+
+var_def ::= typed_var:tv ASSIGN:e simple_lit:sl NEWLINE:n   {: RESULT = new VarDef(tvxleft, slxright, tv, sl); :}
+          ;
 
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */

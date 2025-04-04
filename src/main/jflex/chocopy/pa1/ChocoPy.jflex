@@ -1,5 +1,7 @@
 package chocopy.pa1;
 import java_cup.runtime.*;
+import java.util.ArrayList;
+import java.util.Iterator;
 
 %%
 
@@ -8,6 +10,8 @@ import java_cup.runtime.*;
 %unicode
 %line
 %column
+
+%states AFTER
 
 %class ChocoPyLexer
 %public
@@ -48,6 +52,31 @@ import java_cup.runtime.*;
             value);
     }
 
+    private Symbol symbolAtPrevCol(int type, Object value) {
+        return symbolFactory.newSymbol(ChocoPyTokens.terminalNames[type], type,
+            new ComplexSymbolFactory.Location(yyline + 1, yycolumn - 1),
+            new ComplexSymbolFactory.Location(yyline + 1,yycolumn + yylength()),
+            value);
+    }
+
+    private int currIndent = 0;
+
+    private ArrayList<Integer> stack = new ArrayList<Integer>();
+
+    private void push(int indent){
+        stack.add(indent);
+    }
+
+    private int pop(){
+        if(stack.isEmpty()) return 0;
+        return stack.remove(stack.size() - 1);
+    }
+
+    private int top(){
+        if(stack.isEmpty()) return 0;
+        return stack.get(stack.size() - 1);
+    }
+
 %}
 
 /* Macros (regexes used in rules below) */
@@ -62,11 +91,27 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 
 %%
 
+<YYINITIAL>{
+  {WhiteSpace} { currIndent += yytext().equals("\t") ? 8 : 1; }
+  
+  {LineBreak}  { currIndent = 0; }
 
-<YYINITIAL> {
+  [^ \t\r\n#] {
+      yypushback(1);
+      if (top() > currIndent) {
+          pop();
+          return symbolAtPrevCol(top() < currIndent ? ChocoPyTokens.UNRECOGNIZED : ChocoPyTokens.DEDENT, currIndent);
+      }
+      yybegin(AFTER);
+      if (top() < currIndent) {
+          push(currIndent);
+          return symbolAtPrevCol(ChocoPyTokens.INDENT, currIndent);
+      }
+  }
+}
 
-  /* Delimiters. */
-  {LineBreak}                    { return symbol(ChocoPyTokens.NEWLINE); }
+<AFTER> {
+  {LineBreak} { yybegin(YYINITIAL); currIndent = 0; return symbol(ChocoPyTokens.NEWLINE); }
 
   /* Literals. */
   {IntegerLiteral}               { return symbol(ChocoPyTokens.NUMBER, Integer.parseInt(yytext())); }
@@ -102,7 +147,13 @@ StringLiteral = \"([^\"\\]|\\.)*\"
   "or"                        { return symbol(ChocoPyTokens.OR); }
   "not"                       { return symbol(ChocoPyTokens.NOT); }
   "."                         { return symbol(ChocoPyTokens.DOT); }
-  "and"                          { return symbol(ChocoPyTokens.AND); }
+  "and"                       { return symbol(ChocoPyTokens.AND); }
+  "def"                       { return symbol(ChocoPyTokens.DEF); }
+  ":"                         { return symbol(ChocoPyTokens.COLON); }
+  "global"                    { return symbol(ChocoPyTokens.GLOBAL); }
+  "nonlocal"                  { return symbol(ChocoPyTokens.NONLOCAL); }
+  "->"                        { return symbol(ChocoPyTokens.ARROW); }
+  "return"                    { return symbol(ChocoPyTokens.RETURN); }
 
   /* Identifier */
   {Identifier}                { return symbol(ChocoPyTokens.ID, yytext()); }  
@@ -111,7 +162,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
   {WhiteSpace}                { /* ignore */ }
 }
 
-<<EOF>>                       { return symbol(ChocoPyTokens.EOF); }
+<<EOF>> { return !stack.isEmpty() ? symbol(ChocoPyTokens.DEDENT, pop()) : symbol(ChocoPyTokens.EOF); }
 
 /* Error fallback. */
 [^]                           { return symbol(ChocoPyTokens.UNRECOGNIZED); }
