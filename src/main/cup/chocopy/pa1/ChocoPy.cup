@@ -131,6 +131,7 @@ action code {:
                                                  first.getLocation()[1]);
     }
 
+    /** Exatamente a mesma lógica do método de cima mas apenas para o nó mais a direita. Foi necessário fazer isso para respeitar a assinatura do método FuncDef, ClassDef e os statements de estrutura de controle (IF, For, While) */
     ComplexSymbolFactory.Location getRight(List<? extends Node> nodes) {
         if (nodes.isEmpty()) {
             return null;
@@ -153,7 +154,6 @@ action code {:
  */
 terminal NEWLINE;
 terminal String COMMA;
-
 terminal String PLUS; 
 terminal String MINUS; 
 terminal String MUL; 
@@ -190,6 +190,13 @@ terminal GLOBAL;
 terminal NONLOCAL;
 terminal String ARROW;
 terminal String RETURN;
+terminal CLASS;
+terminal String ELIF;
+terminal String WHILE;
+terminal String PASS;
+terminal String FOR;
+terminal String IN;
+terminal String IS;
 
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
@@ -202,8 +209,8 @@ terminal BAD_INDENTATION;
  * defines the listed nonterminal identifier symbols to have semantic values
  * of type <type>. */
 non terminal Program           program;
-non terminal List<Declaration> program_head, decl_list;
-non terminal List<Stmt>        stmt_list, opt_stmt_list;
+non terminal List<Declaration> program_head, decl_list, class_struct;
+non terminal List<Stmt>        stmt_list, opt_stmt_list, else_body, block;
 non terminal Stmt              stmt, expr_stmt;
 non terminal Expr              expr, basic_expr, cond_expr;
 non terminal Identifier        identifier;
@@ -213,13 +220,14 @@ non terminal IndexExpr         index_expr;
 non terminal Literal           simple_lit;
 non terminal StringLiteral     comp_expr;
 non terminal MemberExpr        access_expr;
-non terminal FuncDef           func_def;
+non terminal FuncDef           func_def, func_def_constr;
 non terminal TypeAnnotation    type;
 non terminal GlobalDecl        global_decl;
 non terminal NonLocalDecl      nonloc_decl;
 non terminal VarDef            var_def;
 non terminal TypedVar          typed_var;
 non terminal List<TypedVar>    typed_var_list;
+non terminal ClassDef          class_def;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
@@ -249,6 +257,7 @@ program ::= program_head:d opt_stmt_list:s
 /* Initial list of declarations. */
 program_head ::=  program_head:d func_def:fd             {: RESULT = combine(d, fd); :}
                 | program_head:d var_def:vd              {: RESULT = combine(d, vd); :}
+                | program_head:d class_def:cd            {: RESULT = combine(d, cd); :}
                 | program_head:d error:e                 {: RESULT = d; :}
                 |                                        {: RESULT = empty(); :}
                 ;
@@ -268,12 +277,23 @@ stmt_list ::= stmt:s                 {: RESULT = single(s); :}
             ;
 
 stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
-              ;
+        | IF:i expr:e COLON block:b else_body:elb                      {: RESULT = new IfStmt(ixleft, getRight(elb), e, b, elb); :}
+        | WHILE:wh expr:e COLON block:b                                {: RESULT = new WhileStmt(whxleft, getRight(b), e, b); :}
+        | FOR:f identifier:id IN expr:e COLON block:b                  {: RESULT = new ForStmt(fxleft, getRight(b), id,  e, b); :}
+        ;
+
+else_body ::=  ELSE:el COLON block:b                                      {: RESULT = b; :}
+            |  ELIF:eli expr:e COLON block:b else_body:elb                {: RESULT = single(new IfStmt(elixleft, getRight(elb), e, b, elb)); :}
+            |                                                             {: RESULT = empty(); :}
+            ;
+      
+block ::= NEWLINE INDENT stmt_list:sl DEDENT                 {: RESULT = sl; :};
 
 expr_stmt ::= expr:e                                          {: RESULT = new ExprStmt(exleft, exright, e); :}
             | assgn_target:at expr:e                          {: RESULT = new AssignStmt(getLeft(at), exright, at, e); :}
             | RETURN:r expr:e                                 {: RESULT = new ReturnStmt(rxleft, exright, e); :}
             | RETURN:r                                        {: RESULT = new ReturnStmt(rxleft, rxright, null); :}
+            | PASS:p                                          {: RESULT = null; :}
             ;
 
 assgn_target ::= assgn_target:at target:t ASSIGN              {: RESULT = combine(at, t); :}
@@ -305,6 +325,7 @@ comp_expr ::= EQUAL:co                                       {: RESULT = new Str
           | GEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, ">="); :} 
           | LT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, "<"); :} 
           | GT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, ">"); :}
+          | IS:is                                            {: RESULT = new StringLiteral(isxleft, isxright, "is"); :}
           ;
 
 expr_list ::= expr:e                                      {: RESULT = single(e); :}
@@ -329,6 +350,17 @@ func_def ::= DEF:def identifier:id LPAR typed_var_list:tvl RPAR ARROW type:t COL
                 {: RESULT = new FuncDef(defxleft, getRight(sl), id, tvl, t, dl, sl); :}
            ;
 
+/* Trata especificamente o caso de __init__. A documentacao indica que o lexer trata como um indentifier qualquer, entao, como é caracteristico de uso apenas em uma classe para definir uma funcao especial sem token arrow e tipo de retorno
+* foi criado esse método para ser reduzido apenas na class_struct. O fato de ser feito new ClassType(colxright, colxright, "<None>"); ocorre EXCLUSIVAMENTE porque no teste 'class_constructor' é esperado exatamente esse tipo, por ser uma decisão arbitrária, 
+* foi necessario encaixar com o resultado esperado.
+ */
+func_def_constr ::= DEF:def identifier:id LPAR typed_var_list:tvl RPAR COLON:col NEWLINE INDENT decl_list:dl stmt_list:sl DEDENT     
+                {:  
+                    TypeAnnotation t = new ClassType(colxright, colxright, "<None>");
+                    RESULT = new FuncDef(defxleft, getRight(sl), id, tvl, t, dl, sl);
+                :}
+           ;
+
 type::= identifier:id                    {: RESULT = new ClassType(idxleft, idxright, id.name); :}
       | LBR:lb type:t RBR:rb             {: RESULT = new ListType(lbxleft, rbxright, t); :}
       | STRING:s                         {: RESULT = new ClassType(sxleft, sxright, s); :}
@@ -351,14 +383,25 @@ decl_list ::= decl_list:dl global_decl:gd                    {: RESULT = combine
                    |                                                       {: RESULT = empty(); :}
                    ;
 
-global_decl::= GLOBAL:g identifier:id NEWLINE           {: RESULT = new GlobalDecl(gxleft, idxright, id); :}
+global_decl ::= GLOBAL:g identifier:id NEWLINE           {: RESULT = new GlobalDecl(gxleft, idxright, id); :}
              ;
 
-nonloc_decl::= NONLOCAL:nl identifier:id NEWLINE      {: RESULT = new NonLocalDecl(nlxleft, idxright, id); :}
+nonloc_decl ::= NONLOCAL:nl identifier:id NEWLINE      {: RESULT = new NonLocalDecl(nlxleft, idxright, id); :}
                ;
 
 var_def ::= typed_var:tv ASSIGN:e simple_lit:sl NEWLINE:n   {: RESULT = new VarDef(tvxleft, slxright, tv, sl); :}
           ;
+
+class_def ::= CLASS:c identifier:id1 LPAR identifier:id2 RPAR COLON NEWLINE INDENT class_struct:cs DEDENT
+                {: RESULT = new ClassDef(cxleft, getRight(cs), id1, id2, cs); :}
+            ;
+
+class_struct::= class_struct:cs var_def:v             {: RESULT = combine(cs, v); :}
+              | class_struct:cs func_def:f            {: RESULT = combine(cs, f); :}
+              | class_struct:cs func_def_constr:fc    {: RESULT = combine(cs, fc); :}
+              | class_struct:cs error                 {: RESULT = cs; :}
+              |                                       {: RESULT = empty(); :}
+              ;
 
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */

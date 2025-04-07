@@ -86,6 +86,7 @@ LineBreak  = \r|\n|\r\n
 Identifier = [a-zA-Z$_][a-zA-Z0-9$_]*
 IntegerLiteral = 0 | [1-9][0-9]*
 StringLiteral = \"([^\"\\]|\\.)*\" 
+Comments = #[^\r\n]*
 
 
 
@@ -96,6 +97,8 @@ StringLiteral = \"([^\"\\]|\\.)*\"
   
   {LineBreak}  { currIndent = 0; }
 
+  {Comments}   { /* ignore */ }
+  /* Comentários detalhados da implementacao de indentação no readme do projeto */
   [^ \t\r\n#] {
       yypushback(1);
       if (top() > currIndent) {
@@ -154,12 +157,21 @@ StringLiteral = \"([^\"\\]|\\.)*\"
   "nonlocal"                  { return symbol(ChocoPyTokens.NONLOCAL); }
   "->"                        { return symbol(ChocoPyTokens.ARROW); }
   "return"                    { return symbol(ChocoPyTokens.RETURN); }
+  "class"                     { return symbol(ChocoPyTokens.CLASS); }
+  "elif"                      { return symbol(ChocoPyTokens.ELIF); }
+  "while"                     { return symbol(ChocoPyTokens.WHILE); }
+  "pass"                      { return symbol(ChocoPyTokens.PASS); }
+  "for"                       { return symbol(ChocoPyTokens.FOR); }
+  "in"                        { return symbol(ChocoPyTokens.IN); }
+  "is"                        { return symbol(ChocoPyTokens.IS); }
 
   /* Identifier */
   {Identifier}                { return symbol(ChocoPyTokens.ID, yytext()); }  
 
   /* Whitespace. */
   {WhiteSpace}                { /* ignore */ }
+
+  {Comments}                  { /* ignore */ }
 }
 
 <<EOF>> { return !stack.isEmpty() ? symbol(ChocoPyTokens.DEDENT, pop()) : symbol(ChocoPyTokens.EOF); }
