@@ -131,6 +131,16 @@ action code {:
                                                  first.getLocation()[1]);
     }
 
+    /** Exatamente a mesma lógica do método de cima mas apenas para o nó mais a direita. Foi necessário fazer isso para respeitar a assinatura do método FuncDef, ClassDef e os statements de estrutura de controle (IF, For, While) */
+    ComplexSymbolFactory.Location getRight(List<? extends Node> nodes) {
+        if (nodes.isEmpty()) {
+            return null;
+        }
+        Node last = nodes.get(nodes.size()-1);
+        return new ComplexSymbolFactory.Location(last.getLocation()[2],
+                                                 last.getLocation()[3]);
+    }
+
 :}
 
 /* Terminal symbols (tokens returned by the lexer).  The declaration
@@ -143,11 +153,55 @@ action code {:
  * in actions ( {: ... :} ).
  */
 terminal NEWLINE;
+terminal String COMMA;
 terminal String PLUS; 
+terminal String MINUS; 
+terminal String MUL; 
+terminal String DIV;
+terminal String MOD;
+terminal String LPAR; 
+terminal String RPAR; 
+terminal String ID;
 terminal Integer NUMBER; 
+terminal String ASSIGN;
+terminal String LBR;
+terminal String RBR;
+terminal String IF;
+terminal String ELSE;
+terminal String GT;
+terminal String LT;
+terminal String EQUAL;
+terminal String NEQ;
+terminal String GEQ;
+terminal String LEQ;
+terminal String UMINUS;
+terminal String STRING;
+terminal Boolean BOOL;
+terminal String NONE;
+terminal String OR;
+terminal String NOT;
+terminal String DOT;
+terminal String AND;
+terminal INDENT;
+terminal DEDENT;
+terminal DEF;
+terminal String COLON;
+terminal GLOBAL;
+terminal NONLOCAL;
+terminal String ARROW;
+terminal String RETURN;
+terminal CLASS;
+terminal String ELIF;
+terminal String WHILE;
+terminal String PASS;
+terminal String FOR;
+terminal String IN;
+terminal String IS;
+
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
-terminal UNRECOGNIZED;   
+terminal UNRECOGNIZED;
+terminal BAD_INDENTATION;   
 
 /* Nonterminal symbols (defined in production rules below).
  * As for terminal symbols, 
@@ -155,14 +209,38 @@ terminal UNRECOGNIZED;
  * defines the listed nonterminal identifier symbols to have semantic values
  * of type <type>. */
 non terminal Program           program;
-non terminal List<Declaration> program_head;
-non terminal List<Stmt>        stmt_list, opt_stmt_list;
+non terminal List<Declaration> program_head, decl_list, class_struct;
+non terminal List<Stmt>        stmt_list, opt_stmt_list, else_body, block;
 non terminal Stmt              stmt, expr_stmt;
-non terminal Expr              expr, binary_expr;
+non terminal Expr              expr, basic_expr, cond_expr;
+non terminal Identifier        identifier;
+non terminal List<Expr>        assgn_target, expr_list;
+non terminal Expr              target;
+non terminal IndexExpr         index_expr;
+non terminal Literal           simple_lit;
+non terminal StringLiteral     comp_expr;
+non terminal MemberExpr        access_expr;
+non terminal FuncDef           func_def, func_def_constr;
+non terminal TypeAnnotation    type;
+non terminal GlobalDecl        global_decl;
+non terminal NonLocalDecl      nonloc_decl;
+non terminal VarDef            var_def;
+non terminal TypedVar          typed_var;
+non terminal List<TypedVar>    typed_var_list;
+non terminal ClassDef          class_def;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
-precedence left PLUS;
+ 
+precedence left OR;
+precedence left AND;
+precedence left NOT;
+precedence nonassoc EQUAL, NEQ, LT, GT, LEQ, GEQ;
+precedence left PLUS, MINUS;
+precedence left MUL, DIV, MOD;
+precedence left UMINUS;
+precedence left DOT, COMMA, LBR, RBR;
+precedence right IF;
 
 /* The start symbol. */
 start with program;
@@ -177,8 +255,11 @@ program ::= program_head:d opt_stmt_list:s
         ;
 
 /* Initial list of declarations. */
-program_head ::= /* not implemented; currently matches empty string */
-                                     {: RESULT = empty(); :}
+program_head ::=  program_head:d func_def:fd             {: RESULT = combine(d, fd); :}
+                | program_head:d var_def:vd              {: RESULT = combine(d, vd); :}
+                | program_head:d class_def:cd            {: RESULT = combine(d, cd); :}
+                | program_head:d error:e                 {: RESULT = d; :}
+                |                                        {: RESULT = empty(); :}
                 ;
 
 opt_stmt_list ::=                    {: RESULT = empty(); :}
@@ -196,19 +277,146 @@ stmt_list ::= stmt:s                 {: RESULT = single(s); :}
             ;
 
 stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
-              ;
+        | IF:i expr:e COLON block:b else_body:elb                      {: RESULT = new IfStmt(ixleft, getRight(elb), e, b, elb); :}
+        | WHILE:wh expr:e COLON block:b                                {: RESULT = new WhileStmt(whxleft, getRight(b), e, b); :}
+        | FOR:f identifier:id IN expr:e COLON block:b                  {: RESULT = new ForStmt(fxleft, getRight(b), id,  e, b); :}
+        ;
 
-expr_stmt ::= expr:e    {: RESULT = new ExprStmt(exleft, exright, e); :}
+else_body ::=  ELSE:el COLON block:b                                      {: RESULT = b; :}
+            |  ELIF:eli expr:e COLON block:b else_body:elb                {: RESULT = single(new IfStmt(elixleft, getRight(elb), e, b, elb)); :}
+            |                                                             {: RESULT = empty(); :}
+            ;
+      
+block ::= NEWLINE INDENT stmt_list:sl DEDENT                 {: RESULT = sl; :};
+
+expr_stmt ::= expr:e                                          {: RESULT = new ExprStmt(exleft, exright, e); :}
+            | assgn_target:at expr:e                          {: RESULT = new AssignStmt(getLeft(at), exright, at, e); :}
+            | RETURN:r expr:e                                 {: RESULT = new ReturnStmt(rxleft, exright, e); :}
+            | RETURN:r                                        {: RESULT = new ReturnStmt(rxleft, rxright, null); :}
+            | PASS:p                                          {: RESULT = null; :}
             ;
 
-expr ::= binary_expr:e  {: RESULT = e; :}
-       | NUMBER:n       {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
-       ;
+assgn_target ::= assgn_target:at target:t ASSIGN              {: RESULT = combine(at, t); :}
+              | target:t ASSIGN                               {: RESULT = single(t); :}
+              ;
 
+target ::= identifier:id                               {: RESULT = id; :}
+        |  index_expr:ie                               {: RESULT = ie; :}
+        |  access_expr:ae                              {: RESULT = ae; :} 
+        ;
+
+identifier ::= ID:id                                   {: RESULT = new Identifier(idxleft, idxright, id); :}
+            ;
+
+expr ::=  cond_expr:ce                                    {: RESULT = ce; :}
+      |   expr:e1 IF expr:e2 ELSE expr:e3                 {: RESULT = new IfExpr(e1xleft, e3xright, e2, e1, e3); :}
+      |   expr:e1 OR:or expr:e2                           {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, or, e2);  :}
+      |   NOT:n expr:exp                                  {: RESULT = new UnaryExpr(nxleft, expxright, n, exp); :}
+      |   expr:e1 AND:a expr:e2                           {: RESULT = new BinaryExpr(e1xleft, e2xright, e1, a, e2); :}
+      ;
+
+cond_expr ::=   basic_expr:be                                {: RESULT = be; :}
+            |   basic_expr:be1 comp_expr:ce basic_expr:be2   {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, ce.value, be2); :}
+        ;
+
+comp_expr ::= EQUAL:co                                       {: RESULT = new StringLiteral(coxleft, coxright, "=="); :} 
+          | NEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, "!="); :} 
+          | LEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, "<="); :} 
+          | GEQ:co                                           {: RESULT = new StringLiteral(coxleft, coxright, ">="); :} 
+          | LT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, "<"); :} 
+          | GT:co                                            {: RESULT = new StringLiteral(coxleft, coxright, ">"); :}
+          | IS:is                                            {: RESULT = new StringLiteral(isxleft, isxright, "is"); :}
+          ;
+
+expr_list ::= expr:e                                      {: RESULT = single(e); :}
+            | expr_list:el COMMA expr:e                   {: RESULT = combine(el, e); :}
+            |                                             {: RESULT = new ArrayList<Expr>(); :}
+            ;
+
+index_expr ::= basic_expr:be LBR expr:e RBR:rbr                   {: RESULT = new IndexExpr(bexleft, rbrxright, be, e); :}
+            ;
+
+simple_lit ::= NUMBER:n                                         {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+          | STRING:s                                            {: RESULT = new StringLiteral(sxleft, sxright, s); :}
+          | NONE:no                                             {: RESULT = new NoneLiteral(noxleft, noxright); :}
+          | BOOL:b                                              {: RESULT = new BooleanLiteral(bxleft, bxright, b); :}
+          ;
+
+access_expr ::= basic_expr:be DOT identifier:id                   {: RESULT = new MemberExpr(bexleft, idxright, be, id); :}
+              ;
+
+
+func_def ::= DEF:def identifier:id LPAR typed_var_list:tvl RPAR ARROW type:t COLON NEWLINE INDENT decl_list:dl stmt_list:sl DEDENT     
+                {: RESULT = new FuncDef(defxleft, getRight(sl), id, tvl, t, dl, sl); :}
+           ;
+
+/* Trata especificamente o caso de __init__. A documentacao indica que o lexer trata como um indentifier qualquer, entao, como é caracteristico de uso apenas em uma classe para definir uma funcao especial sem token arrow e tipo de retorno
+* foi criado esse método para ser reduzido apenas na class_struct. O fato de ser feito new ClassType(colxright, colxright, "<None>"); ocorre EXCLUSIVAMENTE porque no teste 'class_constructor' é esperado exatamente esse tipo, por ser uma decisão arbitrária, 
+* foi necessario encaixar com o resultado esperado.
+ */
+func_def_constr ::= DEF:def identifier:id LPAR typed_var_list:tvl RPAR COLON:col NEWLINE INDENT decl_list:dl stmt_list:sl DEDENT     
+                {:  
+                    TypeAnnotation t = new ClassType(colxright, colxright, "<None>");
+                    RESULT = new FuncDef(defxleft, getRight(sl), id, tvl, t, dl, sl);
+                :}
+           ;
+
+type::= identifier:id                    {: RESULT = new ClassType(idxleft, idxright, id.name); :}
+      | LBR:lb type:t RBR:rb             {: RESULT = new ListType(lbxleft, rbxright, t); :}
+      | STRING:s                         {: RESULT = new ClassType(sxleft, sxright, s); :}
+      ;
+
+typed_var_list ::= typed_var_list:tvl COMMA typed_var:tv    {: RESULT = combine(tvl, tv); :}
+                 | typed_var_list:tvl COMMA error           {: RESULT = tvl; :}
+                 | typed_var:tv                             {: RESULT = single(tv); :}
+                 |                                          {: RESULT = empty(); :}
+                 ;
+
+typed_var ::= identifier:id COLON:c type:t       {: RESULT = new TypedVar(idxleft, txright, id, t); :}
+            ;
+
+decl_list ::= decl_list:dl global_decl:gd                    {: RESULT = combine(dl, gd); :}
+                   | decl_list:dl nonloc_decl:nld                 {: RESULT = combine(dl, nld); :}
+                   | decl_list:dl var_def:vd                        {: RESULT = combine(dl, vd); :}
+                   | decl_list:dl func_def: fd                      {: RESULT = combine(dl, fd); :}
+                   | decl_list:dl error                             {: RESULT = dl; :}
+                   |                                                       {: RESULT = empty(); :}
+                   ;
+
+global_decl ::= GLOBAL:g identifier:id NEWLINE           {: RESULT = new GlobalDecl(gxleft, idxright, id); :}
+             ;
+
+nonloc_decl ::= NONLOCAL:nl identifier:id NEWLINE      {: RESULT = new NonLocalDecl(nlxleft, idxright, id); :}
+               ;
+
+var_def ::= typed_var:tv ASSIGN:e simple_lit:sl NEWLINE:n   {: RESULT = new VarDef(tvxleft, slxright, tv, sl); :}
+          ;
+
+class_def ::= CLASS:c identifier:id1 LPAR identifier:id2 RPAR COLON NEWLINE INDENT class_struct:cs DEDENT
+                {: RESULT = new ClassDef(cxleft, getRight(cs), id1, id2, cs); :}
+            ;
+
+class_struct::= class_struct:cs var_def:v             {: RESULT = combine(cs, v); :}
+              | class_struct:cs func_def:f            {: RESULT = combine(cs, f); :}
+              | class_struct:cs func_def_constr:fc    {: RESULT = combine(cs, fc); :}
+              | class_struct:cs error                 {: RESULT = cs; :}
+              |                                       {: RESULT = empty(); :}
+              ;
 
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */
-binary_expr ::= expr:e1 PLUS:op expr:e2
-                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
-                                                   e1, op, e2); :}
-              ;
+basic_expr ::=  identifier:id                                     {: RESULT = id; :}
+            |   access_expr:ae                                    {: RESULT = ae; :}
+            |   access_expr:ae LPAR expr_list:el RPAR:rpar        {: RESULT = new MethodCallExpr(aexleft, rparxright, ae, el); :}
+            |   simple_lit:sl                                     {: RESULT = sl; :}
+            |   LBR:lbr expr_list:el RBR:rbr                      {: RESULT = new ListExpr(lbrxleft, rbrxright, el); :}
+            |   LPAR:lpar expr:e RPAR:rpar                        {: RESULT = e; :}
+            |   index_expr:i                                      {: RESULT = i; :}
+            |   identifier:id LPAR expr_list:expl RPAR:rpar       {: RESULT = new CallExpr(idxleft, rparxright, id, expl); :}
+            |   basic_expr:be1 PLUS:op basic_expr:be2             {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MINUS:op basic_expr:be2            {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MUL:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 DIV:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   basic_expr:be1 MOD:op basic_expr:be2              {: RESULT = new BinaryExpr(be1xleft, be2xright, be1, op, be2); :}
+            |   MINUS:m basic_expr:be                             {: RESULT = new UnaryExpr(mxleft, bexright, m, be); :} %prec UMINUS
+            ;
